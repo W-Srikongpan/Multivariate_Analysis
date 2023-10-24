@@ -1,0 +1,198 @@
+#Data Pre-processing 
+##1) Import the data
+```{r}
+library(readr)  
+wdbc = read_csv("~/Desktop/Multi /data.csv")
+head(wdbc)
+```
+```{r}
+# Convert the features of the data 
+wdbc.data = wdbc[,c(3:32)]
+# Set the row names of wdbc.data
+row.names(wdbc.data) = wdbc$id
+head(wdbc.data)
+# Create diagnosis vector 
+#diagnosis = as.numeric(wdbc$diagnosis == "M") 
+```
+###Descriptive Statistics
+```{r}
+summary(wdbc.data)
+```
+##2) Split the data into Train data and Test data Split data into training (80%) and test (20%) data
+```{r}
+set.seed(123)
+library(tidyverse) 
+library(caret)
+theme_set(theme_classic())
+## Train data
+training_samples = wdbc$diagnosis %>% createDataPartition (p=0.8, list=FALSE)
+train = wdbc[training_samples,]
+x_train = train[,3:32]
+head(x_train)
+```
+
+```{r}
+y_train = train[,2]
+head(y_train)
+```
+
+```{r}
+## Test data
+test = wdbc[-training_samples,]
+x_test = test[,3:32]
+head(x_test)
+```
+
+```{r}
+y_test = test[,2]
+head(y_test)
+```
+
+#PRINCIPAL COMPONENTS ANALYSIS (PCA) 
+##1) Correlation
+```{r}
+pairs(x_train, pch = 19 , lower.panel = NULL)
+```
+##2) Apply PCA
+###Summary
+```{r}
+res.pca = prcomp(x_train,scale=TRUE)
+summary(res.pca)
+```
+###Eigen Vector
+```{r}
+res.pca$rotation
+```
+###Eigen Value
+```{r}
+eigen_value = (res.pca$sdev)^2
+eigen_value
+```
+```{r}
+sum(eigen_value)
+```
+##3) Correlation Circle
+```{r}
+library("factoextra")
+var = get_pca_var(res.pca)
+var
+```
+```{r}
+fviz_pca_var(res.pca,col.var = "cos2",              
+             gradient.cols = c("#00AFBB","#E7B800","#FC4E07"),             
+             repel = TRUE #avoid text overlapping             
+)
+```
+##4) Correlation plot
+```{r}
+library("corrplot") 
+corrplot(var$cos2, is.corr = FALSE, col = colorRampPalette(c("darkred","white","darkblue"))(100))
+```
+##5) Selecting PC
+```{r}
+res_eig = get_eigenvalue(res.pca)
+mean(res_eig$eigenvalue)
+```
+```{r}
+res_eig$eigenvalue >= 1
+```
+Conclusion of Selecting PC
+Since, PC1, PC2, PC3, PC4, PC5, and PC6 have eigen value greater than 1, then we select PC1, PC2, PC3, PC4, PC5, and PC6 to be used in the Classification Analysis.
+
+#Discriminant Analysis
+##Assumption Checking
+###Normality
+```{r}
+library(MVN)
+results = mvn(wdbc[,c(3:32)],mvnTest = 'energy', multivariatePlot = 'qq')
+```
+
+```{r}
+results
+```
+Hypotheses
+H0 = data normally distributed
+H1 = data is not normally distributed 
+
+Conclusion
+Since p-value is less than 0.05, then reject H0. So we can conclude that data is not multivariate normal distribution. So, we will use Quadratic discriminant analysis (QDA)
+
+##Discriminant Analysis with PCA
+```{r}
+train_pcs = as.data.frame(res.pca$x)
+head(train_pcs)
+```
+
+```{r}
+train_pcs = cbind(train_pcs[,1:6],y_train)
+colnames(train_pcs)[7] <- "diagnosis" 
+head(train_pcs)
+```
+
+```{r}
+Model_QDA_PCA = qda(diagnosis~., train_pcs)
+Model_QDA_PCA
+```
+Therefore,that 62.63% in training set were Benign diagnosis and 37.36% in training set were Malignant diagnosis.
+
+```{r}
+Test_PCA = predict(res.pca, newdata = x_test)
+Test_PCA = data.frame(Test_PCA[,1:6])
+head(Test_PCA)
+```
+```{r}
+introduce(Test_PCA)
+```
+```{r}
+predictions_QDA_PCA = predict(Model_QDA_PCA,Test_PCA)
+head(predictions_QDA_PCA$class)
+```
+#Logistic Regression
+##Logistic Regression with PCA
+
+```{r}
+train_pcs2 = train_pcs
+train_pcs2$diagnosis = as.factor(train_pcs2$diagnosis)
+full_model_PCA = glm(diagnosis~., data = train_pcs2, family = binomial)
+summary(full_model_PCA)
+```
+Hypotheses
+H0 : Intercept or Variable Predictor is not significant to the model
+H1 : Intercept or Variable Predictor is significant to the model
+
+Conclusion
+intercept, PC1, PC2, PC3, PC4, PC5, and PC6 are significant to the model (p-value < 0.05)
+```{r}
+mydata = train_pcs[,1:6] %>% dplyr :: select_if(is.numeric)
+
+predictors = colnames(mydata)
+predictors
+```
+```{r}
+probabilities_full_PCA = predict(full_model_PCA, train_pcs[,1:6], type = "response")
+logit_PCA = log(probabilities_full_PCA/(1 - probabilities_full_PCA))
+mydata1 = mydata %>% mutate(logit_PCA) %>% gather(key = "predictors", value = "predictors.value",-logit_PCA)
+
+head(mydata1,10)
+```
+```{r}
+ggplot(mydata1, aes(logit_PCA,predictors.value)) + geom_point(size = 0.5, alpha = 0.5) + geom_smooth(method="loess") + theme_bw() + facet_wrap(~predictors,scales="free_y")
+```
+```{r}
+library(broom)
+model_full_data_PCA = augment(full_model_PCA) %>% mutate(index=1:n())
+model_full_data_PCA %>% top_n(3,.cooksd)
+```
+```{r}
+library(car)
+vif(full_model_PCA)
+```
+```{r}
+prob_full_PCA = predict(full_model_PCA, Test_PCA, type = "response")
+head(prob_full_PCA)
+```
+
+```{r}
+predicted_full_PCA = ifelse(prob_full_PCA > 0.5, "Malignant", "Benign")
+head(predicted_full_PCA)
+```
