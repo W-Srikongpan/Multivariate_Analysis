@@ -1,0 +1,5 @@
+library('DataExplorer')
+library(readr)
+wdbc <- read_csv("Desktop/Multi/data.csv")  
+
+
